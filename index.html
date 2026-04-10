@@ -135,13 +135,16 @@
             const urlParams = new URLSearchParams(window.location.search);
             const pOwner = urlParams.get('owner');
             const pRepo = urlParams.get('repo');
-            let pToken = urlParams.get('token');
             
+            // URLにtokenパラメータが残っていた場合の互換性維持（読み込むが、URLからは消す想定）
+            const urlToken = urlParams.get('token');
             const savedToken = storage.get(TOKEN_KEY);
 
-            // トークンの優先順位: URLのパラメータ > ローカルストレージ
-            if (pToken) {
-                storage.set(TOKEN_KEY, pToken); // URLから来た場合はストレージを更新
+            let pToken = '';
+            if (urlToken) {
+                pToken = urlToken;
+                storage.set(TOKEN_KEY, pToken);
+                // URLからtokenパラメータを削除して履歴をクリーンにする処理はloadIssues内で実施
             } else if (savedToken) {
                 pToken = savedToken;
             }
@@ -265,11 +268,9 @@
                 const newUrl = new URL(window.location);
                 newUrl.searchParams.set('owner', owner);
                 newUrl.searchParams.set('repo', repo);
-                if (token) {
-                    newUrl.searchParams.set('token', token);
-                } else {
-                    newUrl.searchParams.delete('token');
-                }
+                // GETパラメータからtokenを削除する
+                newUrl.searchParams.delete('token');
+                
                 window.history.replaceState({}, '', newUrl);
             } catch (e) {
                 console.warn('URL履歴の書き換えがブロックされました:', e.message);
