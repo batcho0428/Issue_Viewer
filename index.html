@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Issue Board</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* カスタムスクロールバー */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .board-column { min-height: 200px; height: calc(100vh - 180px); overflow-y: auto; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased">
+
+    <!-- ヘッダーと設定エリア -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <h1 class="text-xl font-bold flex items-center gap-2 text-slate-700">
+                    <i class="fab fa-github"></i> Issue Viewer
+                </h1>
+                
+                <div class="flex flex-wrap items-center gap-3">
+                    <input type="text" id="ownerInput" placeholder="Owner (例: facebook)" class="px-3 py-1.5 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-32 md:w-40">
+                    <span class="text-slate-400">/</span>
+                    <input type="text" id="repoInput" placeholder="Repo (例: react)" class="px-3 py-1.5 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-32 md:w-40">
+                    
+                    <div class="relative group">
+                        <input type="password" id="tokenInput" placeholder="Access Token (非公開/制限回避用)" class="px-3 py-1.5 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48">
+                        <div class="absolute hidden group-hover:block bg-slate-800 text-white text-xs p-2 rounded -bottom-10 left-0 w-64 shadow-lg z-20">
+                            ※公開リポジトリは不要ですが、<br>PR詳細取得でAPI制限にかかりやすいため入力推奨です。
+                        </div>
+                    </div>
+                    
+                    <button onclick="loadIssues()" id="fetchBtn" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+                        <i class="fas fa-sync-alt" id="loadingIcon"></i> 読み込む
+                    </button>
+                </div>
+            </div>
+            <!-- メッセージ表示エリア -->
+            <div id="messageArea" class="mt-2 text-sm hidden"></div>
+        </div>
+    </header>
+
+    <!-- かんばんボードエリア -->
+    <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
+            
+            <!-- 未アサイン -->
+            <div class="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <h2 class="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-red-400 shadow-sm"></span> 未アサイン
+                    </h2>
+                    <span id="count-unassigned" class="bg-white border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">0</span>
+                </div>
+                <div id="col-unassigned" class="board-column flex flex-col gap-3"></div>
+            </div>
+
+            <!-- アサイン済み -->
+            <div class="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <h2 class="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-sm"></span> アサイン済み
+                    </h2>
+                    <span id="count-assigned" class="bg-white border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">0</span>
+                </div>
+                <div id="col-assigned" class="board-column flex flex-col gap-3"></div>
+            </div>
+
+            <!-- レビュワー未決定 -->
+            <div class="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <h2 class="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-300 shadow-sm"></span> レビュワー未決定
+                    </h2>
+                    <span id="count-pr_no_reviewer" class="bg-white border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">0</span>
+                </div>
+                <div id="col-pr_no_reviewer" class="board-column flex flex-col gap-3"></div>
+            </div>
+
+            <!-- レビュー待ち -->
+            <div class="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <h2 class="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm"></span> レビュー待ち
+                    </h2>
+                    <span id="count-pr_wait_review" class="bg-white border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">0</span>
+                </div>
+                <div id="col-pr_wait_review" class="board-column flex flex-col gap-3"></div>
+            </div>
+
+            <!-- レビュー修正待ち -->
+            <div class="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <h2 class="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-sm"></span> レビュー修正待ち
+                    </h2>
+                    <span id="count-reviewed" class="bg-white border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">0</span>
+                </div>
+                <div id="col-reviewed" class="board-column flex flex-col gap-3"></div>
+            </div>
+
+            <!-- 再レビュー待ち -->
+            <div class="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <h2 class="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm"></span> 再レビュー待ち
+                    </h2>
+                    <span id="count-updated" class="bg-white border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">0</span>
+                </div>
+                <div id="col-updated" class="board-column flex flex-col gap-3"></div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // プレビュー環境でのエラーを防ぐためのローカルストレージラッパー
+        const storage = {
+            get: (key) => { try { return localStorage.getItem(key); } catch(e) { return null; } },
+            set: (key, value) => { try { localStorage.setItem(key, value); } catch(e) { console.warn(e); } },
+            remove: (key) => { try { localStorage.removeItem(key); } catch(e) { console.warn(e); } }
+        };
+
+        const TOKEN_KEY = 'github_issue_board_token';
+
+        // ページロード時にGETパラメータとローカルストレージを取得
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const pOwner = urlParams.get('owner');
+            const pRepo = urlParams.get('repo');
+            let pToken = urlParams.get('token');
+            
+            const savedToken = storage.get(TOKEN_KEY);
+
+            // トークンの優先順位: URLのパラメータ > ローカルストレージ
+            if (pToken) {
+                storage.set(TOKEN_KEY, pToken); // URLから来た場合はストレージを更新
+            } else if (savedToken) {
+                pToken = savedToken;
+            }
+            
+            if (pOwner) document.getElementById('ownerInput').value = pOwner;
+            if (pRepo) document.getElementById('repoInput').value = pRepo;
+            if (pToken) document.getElementById('tokenInput').value = pToken;
+            
+            // パラメータが揃っていれば自動ロード
+            if (pOwner && pRepo) {
+                loadIssues();
+            }
+        });
+
+        function showMessage(text, isError = false) {
+            const area = document.getElementById('messageArea');
+            area.textContent = text;
+            area.className = `mt-3 text-sm font-medium px-4 py-2.5 rounded-md shadow-sm border ${isError ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'} block`;
+        }
+
+        function hideMessage() {
+            document.getElementById('messageArea').classList.add('hidden');
+        }
+
+        function createCardHTML(issue) {
+            // 洗練されたラベルの生成
+            const labelsHtml = issue.labels.map(label => {
+                const hex = label.color;
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 2), 16);
+                // 色の明るさを計算
+                const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+                const isLight = yiq >= 128;
+                
+                // 明るい色には黒文字、暗い色には白文字。ボーダーは少し透かして馴染ませる
+                const textColor = isLight ? '#1e293b' : '#ffffff';
+                const borderColor = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)';
+                
+                return `<span class="text-[11px] px-2 py-0.5 rounded-full font-medium tracking-wide shadow-sm" 
+                              style="background-color: #${label.color}; color: ${textColor}; border: 1px solid ${borderColor};">
+                    ${label.name}
+                </span>`;
+            }).join('');
+
+            // アサインされた人の表示（アイコンと名前を表示）
+            let assigneesHtml = '';
+            if (issue.assignees && issue.assignees.length > 0) {
+                assigneesHtml = issue.assignees.map(user => `
+                    <div class="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md border border-slate-200 shadow-sm" title="Assigned to ${user.login}">
+                        <img src="${user.avatar_url}" alt="${user.login}" class="w-4 h-4 rounded-full">
+                        <span class="text-[11px] font-bold text-slate-700">${user.login}</span>
+                    </div>
+                `).join('');
+            }
+
+            const isPR = !!issue.pull_request;
+            const icon = isPR ? '<i class="fas fa-code-branch text-green-600"></i>' : '<i class="far fa-dot-circle text-green-500"></i>';
+
+            return `
+                <a href="${issue.html_url}" target="_blank" rel="noopener noreferrer" 
+                   class="block bg-white p-3.5 rounded-lg shadow-sm border border-slate-200 hover:shadow-md hover:border-blue-400 hover:-translate-y-0.5 transition-all group flex flex-col gap-2.5">
+                    <div class="flex items-start gap-2">
+                        <div class="mt-0.5 flex-shrink-0">${icon}</div>
+                        <h3 class="text-sm font-bold text-slate-800 leading-snug group-hover:text-blue-600 transition-colors">
+                            ${issue.title}
+                        </h3>
+                    </div>
+                    
+                    ${labelsHtml ? `<div class="flex flex-wrap gap-1.5">${labelsHtml}</div>` : ''}
+                    
+                    <!-- Issue作成者をグレーのテキストのみで表示 -->
+                    <div class="text-[11px] text-slate-500 font-medium truncate">
+                        opened by ${issue.user.login}
+                    </div>
+
+                    <div class="flex flex-col gap-2 mt-auto pt-2.5 border-t border-slate-100 min-h-[28px]">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-400">#${issue.number}</span>
+                        </div>
+                        ${assigneesHtml ? `<div class="flex flex-wrap gap-1">${assigneesHtml}</div>` : '<div></div>'}
+                    </div>
+                </a>
+            `;
+        }
+
+        function renderColumns(categorized) {
+            Object.keys(categorized).forEach(key => {
+                const column = document.getElementById(`col-${key}`);
+                const countSpan = document.getElementById(`count-${key}`);
+                
+                column.innerHTML = '';
+                countSpan.textContent = categorized[key].length;
+                
+                categorized[key].forEach(issue => {
+                    column.innerHTML += createCardHTML(issue);
+                });
+            });
+        }
+
+        async function loadIssues() {
+            const owner = document.getElementById('ownerInput').value.trim();
+            const repo = document.getElementById('repoInput').value.trim();
+            const token = document.getElementById('tokenInput').value.trim();
+            const btn = document.getElementById('fetchBtn');
+            const icon = document.getElementById('loadingIcon');
+
+            if (!owner || !repo) {
+                showMessage('OwnerとRepoを入力してください。（例: ownerに "facebook"、repoに "react"）', true);
+                return;
+            }
+
+            // トークンが入力されていればローカルストレージに保存、空なら削除
+            if (token) {
+                storage.set(TOKEN_KEY, token);
+            } else {
+                storage.remove(TOKEN_KEY);
+            }
+
+            try {
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('owner', owner);
+                newUrl.searchParams.set('repo', repo);
+                if (token) {
+                    newUrl.searchParams.set('token', token);
+                } else {
+                    newUrl.searchParams.delete('token');
+                }
+                window.history.replaceState({}, '', newUrl);
+            } catch (e) {
+                console.warn('URL履歴の書き換えがブロックされました:', e.message);
+            }
+
+            btn.disabled = true;
+            icon.classList.add('fa-spin');
+            hideMessage();
+
+            // 6つのステータス列
+            const categorized = {
+                unassigned: [],
+                assigned: [],
+                pr_no_reviewer: [],
+                pr_wait_review: [],
+                reviewed: [],
+                updated: []
+            };
+            
+            renderColumns(categorized);
+
+            const headers = { 'Accept': 'application/vnd.github.v3+json' };
+            if (token) {
+                headers['Authorization'] = `token ${token}`;
+            }
+
+            try {
+                const url = `https://api.github.com/repos/${owner}/${repo}/issues?state=open&per_page=100`;
+                const response = await fetch(url, { headers });
+                
+                if (!response.ok) {
+                    if (response.status === 404) throw new Error('リポジトリが見つかりません。非公開の場合はTokenが必要です。');
+                    if (response.status === 401) throw new Error('Tokenが無効、または期限切れです。');
+                    if (response.status === 403) throw new Error('APIの利用制限に達しました。時間を置くかTokenを設定してください。');
+                    throw new Error(`エラーが発生しました: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const prList = [];
+
+                data.forEach(item => {
+                    if (item.pull_request) {
+                        prList.push(item);
+                    } else if (item.assignees && item.assignees.length > 0) {
+                        categorized.assigned.push(item);
+                    } else {
+                        categorized.unassigned.push(item);
+                    }
+                });
+
+                renderColumns(categorized);
+
+                if (prList.length > 0) {
+                    let doneCount = 0;
+                    showMessage(`PRの詳細状態を確認中... (0 / ${prList.length})`);
+                    
+                    const fetchPrDetails = prList.map(async (item) => {
+                        try {
+                            // PR本体、レビュー履歴、コミット履歴の3つを並行取得
+                            const [pullRes, reviewsRes, commitsRes] = await Promise.all([
+                                fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${item.number}`, { headers }),
+                                fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${item.number}/reviews`, { headers }),
+                                fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${item.number}/commits`, { headers })
+                            ]);
+                            
+                            if (!pullRes.ok || !reviewsRes.ok || !commitsRes.ok) {
+                                throw new Error('Detail fetch limit');
+                            }
+                            
+                            const pullData = await pullRes.json();
+                            const reviews = await reviewsRes.json();
+                            const commits = await commitsRes.json();
+                            
+                            let lastReviewDate = 0;
+                            let lastCommitDate = 0;
+                            
+                            if (reviews && reviews.length > 0) {
+                                lastReviewDate = new Date(reviews[reviews.length - 1].submitted_at).getTime();
+                            }
+                            if (commits && commits.length > 0) {
+                                lastCommitDate = new Date(commits[commits.length - 1].commit.author.date).getTime();
+                            }
+
+                            // レビュワーが設定されているか
+                            const hasReviewer = pullData.requested_reviewers && pullData.requested_reviewers.length > 0;
+                            
+                            if (lastReviewDate > 0) {
+                                if (lastCommitDate > lastReviewDate) {
+                                    categorized.updated.push(item); // レビュー後にコミットあり（再レビュー待ち）
+                                } else {
+                                    categorized.reviewed.push(item); // レビューで止まっている（レビュー修正待ち）
+                                }
+                            } else {
+                                if (hasReviewer) {
+                                    categorized.pr_wait_review.push(item); // レビュワー決定済（レビュー待ち）
+                                } else {
+                                    categorized.pr_no_reviewer.push(item); // レビュワーなし（レビュワー未決定）
+                                }
+                            }
+                        } catch (e) {
+                            // レート制限などで失敗した場合は、暫定で「レビュワー未決定」へ
+                            categorized.pr_no_reviewer.push(item);
+                        }
+                        
+                        doneCount++;
+                        showMessage(`PRの詳細状態を確認中... (${doneCount} / ${prList.length})`);
+                        renderColumns(categorized);
+                    });
+                    
+                    await Promise.all(fetchPrDetails);
+                    hideMessage();
+                }
+
+            } catch (error) {
+                showMessage(error.message, true);
+            } finally {
+                btn.disabled = false;
+                icon.classList.remove('fa-spin');
+            }
+        }
+    </script>
+</body>
+</html>
